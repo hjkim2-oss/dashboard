@@ -3,12 +3,159 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Spigen Health Check-up Dashboard — 시안</title>
+<title>Spigen Health Check-up Dashboard</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCwmIOvWvGL1EiMEUn5JZ71nNrlA3o705c",
+    authDomain: "gen-lang-client-0178624706.firebaseapp.com",
+    projectId: "gen-lang-client-0178624706",
+    storageBucket: "gen-lang-client-0178624706.firebasestorage.app",
+    messagingSenderId: "138528163225",
+    appId: "1:138528163225:web:c9b44546768d7ffcaabf08"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const provider = new GoogleAuthProvider();
+
+  // 허용 도메인
+  const ALLOWED_DOMAIN = "spigen.com";
+
+  // 현재 페이지 URL (GitHub Pages 배포 후 실제 URL로 자동 설정됨)
+  const ACTION_CODE_SETTINGS = {
+    url: window.location.href,
+    handleCodeInApp: true,
+  };
+
+  // 이메일 링크로 로그인 처리
+  if (isSignInWithEmailLink(auth, window.location.href)) {
+    let email = window.localStorage.getItem('emailForSignIn');
+    if (!email) {
+      email = window.prompt('보안을 위해 이메일 주소를 다시 입력해주세요.');
+    }
+    if (email) {
+      signInWithEmailLink(auth, email, window.location.href)
+        .then((result) => {
+          window.localStorage.removeItem('emailForSignIn');
+          const domain = result.user.email.split('@')[1];
+          if (domain !== ALLOWED_DOMAIN) {
+            showError(`@${ALLOWED_DOMAIN} 이메일만 접근 가능합니다.`);
+            signOut(auth);
+            return;
+          }
+          showDashboard(result.user);
+        })
+        .catch((error) => {
+          showError('인증 링크가 유효하지 않습니다. 다시 시도해주세요.');
+        });
+    }
+  }
+
+  // 인증 상태 감지
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      const domain = user.email.split('@')[1];
+      if (domain !== ALLOWED_DOMAIN) {
+        signOut(auth);
+        showError(`@${ALLOWED_DOMAIN} 이메일만 접근 가능합니다.`);
+        return;
+      }
+      showDashboard(user);
+    } else {
+      showLoginScreen();
+    }
+  });
+
+  // Google 로그인
+  window.loginWithGoogle = function() {
+    provider.setCustomParameters({ hd: ALLOWED_DOMAIN });
+    signInWithPopup(auth, provider)
+      .then((result) => {
+        const domain = result.user.email.split('@')[1];
+        if (domain !== ALLOWED_DOMAIN) {
+          showError(`@${ALLOWED_DOMAIN} 이메일만 접근 가능합니다.`);
+          signOut(auth);
+          return;
+        }
+        showDashboard(result.user);
+      })
+      .catch((error) => {
+        if (error.code !== 'auth/popup-closed-by-user') {
+          showError('Google 로그인 중 오류가 발생했습니다.');
+        }
+      });
+  };
+
+  // 이메일 OTP(링크) 전송
+  window.sendEmailOTP = function() {
+    const email = document.getElementById('email-input').value.trim();
+    if (!email) {
+      showError('이메일을 입력해주세요.');
+      return;
+    }
+    const domain = email.split('@')[1];
+    if (domain !== ALLOWED_DOMAIN) {
+      showError(`@${ALLOWED_DOMAIN} 이메일만 사용 가능합니다.`);
+      return;
+    }
+
+    const btn = document.getElementById('send-btn');
+    btn.disabled = true;
+    btn.textContent = '전송 중...';
+
+    sendSignInLinkToEmail(auth, email, ACTION_CODE_SETTINGS)
+      .then(() => {
+        window.localStorage.setItem('emailForSignIn', email);
+        document.getElementById('login-form').classList.add('hidden');
+        document.getElementById('sent-message').classList.remove('hidden');
+        document.getElementById('sent-email').textContent = email;
+      })
+      .catch((error) => {
+        btn.disabled = false;
+        btn.textContent = '인증 메일 전송';
+        if (error.code === 'auth/unauthorized-continue-uri') {
+          showError('Firebase 콘솔에서 현재 URL을 승인된 도메인에 추가해주세요.');
+        } else {
+          showError('이메일 전송 실패: ' + error.message);
+        }
+      });
+  };
+
+  // 로그아웃
+  window.logout = function() {
+    signOut(auth);
+  };
+
+  function showDashboard(user) {
+    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('app-screen').classList.remove('hidden');
+    document.getElementById('user-email').textContent = user.email;
+    document.getElementById('user-name').textContent = user.displayName || user.email.split('@')[0];
+  }
+
+  function showLoginScreen() {
+    document.getElementById('auth-screen').classList.remove('hidden');
+    document.getElementById('app-screen').classList.add('hidden');
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 5000);
+  }
+</script>
+
 <style>
   :root{
     --bg:#f4efe6;
@@ -33,700 +180,304 @@
   html,body{font-family:'Pretendard',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;background:var(--bg);color:var(--ink);font-feature-settings:"ss01","cv11";}
   .font-display{font-family:'Fraunces',serif;font-optical-sizing:auto;letter-spacing:-0.02em;}
   .font-mono{font-family:'JetBrains Mono',ui-monospace,monospace;}
-
-  /* Decorative noise */
-  .noise{
-    background-image:radial-gradient(rgba(0,0,0,.045) 1px,transparent 1px);
-    background-size:14px 14px;
-  }
-  .grain::before{
-    content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
-    background-image:radial-gradient(rgba(0,0,0,.04) 1px,transparent 1px);
-    background-size:3px 3px;
-  }
-
+  .noise{background-image:radial-gradient(rgba(0,0,0,.045) 1px,transparent 1px);background-size:14px 14px;}
+  .grain::before{content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;background-image:radial-gradient(rgba(0,0,0,.04) 1px,transparent 1px);background-size:3px 3px;}
   .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;}
   .pill-dot{width:6px;height:6px;border-radius:999px;display:inline-block;}
-
   .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:all .15s ease;color:var(--ink-soft);font-weight:500;font-size:14px;}
   .nav-item:hover{background:var(--bg-2);}
   .nav-item.active{background:var(--ink);color:#fffdf6;}
   .nav-item.active .step-num{color:#fffdf6;border-color:rgba(255,255,255,.35);}
   .step-num{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;display:grid;place-items:center;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--ink-mute);}
-
   .screen{animation:fade .4s ease both;}
   @keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
-
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;}
-
-  /* Verdict color blocks */
   .v-A{background:var(--ok-soft);color:var(--ok);}
   .v-B{background:var(--info-soft);color:var(--info);}
   .v-C{background:var(--warn-soft);color:var(--warn);}
   .v-D{background:var(--danger-soft);color:var(--danger);}
   .v-R{background:var(--accent-soft);color:var(--accent);}
-
-  /* Bars */
   .bar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden;}
   .bar > span{display:block;height:100%;}
-
-  /* OTP boxes */
-  .otp-cell{
-    width:54px;height:64px;border:1.5px solid var(--line);border-radius:10px;
-    display:grid;place-items:center;font-family:'Fraunces',serif;font-size:30px;font-weight:500;
-    background:var(--card); color:var(--ink); transition:all .15s ease;
-  }
-  .otp-cell.filled{border-color:var(--ink);}
-  .otp-cell.active{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);}
-  .caret{display:inline-block;width:2px;height:28px;background:var(--ink);animation:blink 1s steps(2) infinite;}
-  @keyframes blink{50%{opacity:0;}}
-
-  /* Donut helper */
   .donut{transform:rotate(-90deg);}
   .donut-seg{fill:none;stroke-width:14;}
-
-  /* table */
   table.dash{width:100%;border-collapse:separate;border-spacing:0;}
   table.dash th{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-mute);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--bg-2);}
   table.dash td{font-size:13px;padding:12px;border-bottom:1px solid var(--line-soft);}
   table.dash tr:hover td{background:var(--bg-2);}
-
-  /* tag */
   .tag{display:inline-flex;align-items:center;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:500;background:var(--bg-2);color:var(--ink-soft);border:1px solid var(--line);}
-
-  /* Watermark */
   .watermark{position:fixed;bottom:18px;right:22px;font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:var(--ink-mute);background:var(--card);padding:6px 12px;border-radius:999px;border:1px solid var(--line);z-index:50;}
-
   .scroll-thin::-webkit-scrollbar{width:6px;height:6px;}
   .scroll-thin::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
-
-  /* subtle hover lift */
   .lift{transition:transform .2s ease, box-shadow .2s ease;}
   .lift:hover{transform:translateY(-1px);box-shadow:0 6px 14px -8px rgba(0,0,0,.12);}
-
-  /* dotted divider */
   .dotted{background-image:linear-gradient(to right,var(--line) 33%,transparent 0%);background-position:bottom;background-size:6px 1px;background-repeat:repeat-x;}
+
+  /* Auth screen */
+  .auth-input{width:100%;padding:12px 16px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);font-family:'Pretendard',sans-serif;font-size:14px;color:var(--ink);outline:none;transition:border-color .15s;}
+  .auth-input:focus{border-color:var(--ink);}
+  .auth-btn{width:100%;padding:13px;border-radius:10px;font-family:'Pretendard',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;}
+  .btn-primary{background:var(--ink);color:#fffdf6;border:none;}
+  .btn-primary:hover{opacity:.88;}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-google{background:var(--card);color:var(--ink);border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;gap:10px;}
+  .btn-google:hover{background:var(--bg-2);}
+  .divider{display:flex;align-items:center;gap:12px;color:var(--ink-mute);font-size:12px;}
+  .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--line);}
 </style>
 </head>
 <body class="min-h-screen">
-  <div class="flex min-h-screen">
-    <!-- ============================ SIDEBAR ============================ -->
-    <aside class="w-[272px] shrink-0 border-r border-[var(--line)] bg-[var(--card)] flex flex-col">
-      <div class="px-7 pt-9 pb-6 border-b border-[var(--line)] relative grain">
-        <div class="text-[10px] tracking-[0.22em] text-[var(--ink-mute)] uppercase font-mono">Spigen Korea · HR</div>
-        <h1 class="font-display text-[28px] leading-[1.02] mt-2.5">
-          Health <em class="not-italic" style="font-style:italic;font-weight:400;">Check-up</em><br />
-          <span class="text-[var(--accent)]">Suite.</span>
-        </h1>
-        <p class="text-[12px] text-[var(--ink-mute)] mt-3 leading-relaxed">임직원 건강검진<br/>통합 대시보드 시안</p>
+
+<!-- ======================== AUTH SCREEN ======================== -->
+<div id="auth-screen" class="min-h-screen flex items-center justify-center noise p-4">
+  <div class="w-full max-w-sm">
+    <!-- Logo -->
+    <div class="text-center mb-8">
+      <div class="text-[10px] tracking-[0.22em] text-[var(--ink-mute)] uppercase font-mono mb-2">Spigen Korea · HR</div>
+      <h1 class="font-display text-[36px] leading-tight">
+        Health <em style="font-style:italic;font-weight:400;">Check-up</em><br/>
+        <span class="text-[var(--accent)]">Suite.</span>
+      </h1>
+      <p class="text-[13px] text-[var(--ink-mute)] mt-2">사내 이메일로 로그인하세요</p>
+    </div>
+
+    <!-- Card -->
+    <div class="card p-6 space-y-4">
+
+      <!-- Error -->
+      <div id="error-msg" class="hidden bg-[var(--danger-soft)] text-[var(--danger)] text-[13px] px-4 py-3 rounded-lg"></div>
+
+      <!-- Login Form -->
+      <div id="login-form">
+        <!-- Google 로그인 -->
+        <button class="auth-btn btn-google mb-4" onclick="loginWithGoogle()">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+          Google 계정으로 로그인
+        </button>
+
+        <div class="divider">또는 이메일 인증 링크</div>
+
+        <div class="mt-4 space-y-3">
+          <input id="email-input" type="email" placeholder="사내 이메일 (예: name@spigen.com)" class="auth-input" onkeydown="if(event.key==='Enter') sendEmailOTP()" />
+          <button id="send-btn" class="auth-btn btn-primary" onclick="sendEmailOTP()">인증 메일 전송</button>
+        </div>
       </div>
 
-      <nav class="flex-1 p-4 space-y-1.5">
-        <div class="px-2 pb-2 text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--ink-mute)]">인증 흐름</div>
-        <div id="nav-login" class="nav-item active" onclick="show('login')">
-          <span class="step-num">01</span>
-          <span>로그인</span>
+      <!-- 전송 완료 메시지 -->
+      <div id="sent-message" class="hidden text-center py-4">
+        <div class="text-4xl mb-4">📬</div>
+        <div class="font-semibold text-[var(--ink)] mb-1">인증 메일을 보냈어요!</div>
+        <div class="text-[13px] text-[var(--ink-mute)] mb-3">
+          <span id="sent-email" class="font-mono text-[var(--ink-soft)]"></span><br/>
+          으로 전송된 링크를 클릭하면 자동으로 로그인됩니다.
         </div>
-        <div id="nav-otp" class="nav-item" onclick="show('otp')">
-          <span class="step-num">02</span>
-          <span>OTP 인증</span>
-        </div>
-        <div class="px-2 pt-4 pb-2 text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--ink-mute)]">대시보드</div>
-        <div id="nav-user" class="nav-item" onclick="show('user')">
-          <span class="step-num">03</span>
-          <span>사용자 화면</span>
-          <span class="ml-auto pill v-A">USER</span>
-        </div>
-        <div id="nav-admin" class="nav-item" onclick="show('admin')">
-          <span class="step-num">04</span>
-          <span>관리자 화면</span>
-          <span class="ml-auto pill v-R">ADMIN</span>
-        </div>
-      </nav>
-
-      <div class="m-4 p-4 rounded-xl border border-dashed border-[var(--line)] text-[11px] leading-relaxed text-[var(--ink-mute)]">
-        <div class="font-semibold text-[var(--ink-soft)] mb-1.5 font-display italic">A note on this mockup.</div>
-        모든 화면·데이터는 <span class="text-[var(--ink-soft)]">시안용 더미</span>입니다. 좌측 메뉴로 화면 간 자유 전환이 가능합니다.
+        <button class="text-[12px] text-[var(--ink-mute)] underline underline-offset-4" onclick="document.getElementById('sent-message').classList.add('hidden');document.getElementById('login-form').classList.remove('hidden');document.getElementById('send-btn').disabled=false;document.getElementById('send-btn').textContent='인증 메일 전송';">다시 시도</button>
       </div>
-    </aside>
 
-    <!-- ============================ MAIN ============================ -->
-    <main class="flex-1 overflow-x-hidden relative">
+    </div>
 
-      <!-- ====================== SCREEN 1: LOGIN ====================== -->
-      <section id="screen-login" class="screen min-h-screen flex">
-        <!-- Left visual -->
-        <div class="w-[42%] bg-[var(--ink)] text-[#fffdf6] relative overflow-hidden grain">
-          <div class="absolute inset-0 noise opacity-30"></div>
-          <div class="relative h-full flex flex-col justify-between p-12">
-            <div>
-              <div class="text-[11px] font-mono tracking-[0.22em] uppercase opacity-60">Step 01 / 02</div>
-              <div class="mt-1 text-[11px] font-mono opacity-50">SECURE ACCESS · COMPANY E-MAIL</div>
-            </div>
-            <div>
-              <div class="text-[11px] font-mono uppercase tracking-[0.2em] opacity-50 mb-4">현재 단계</div>
-              <h2 class="font-display text-[68px] leading-[0.95]">
-                Welcome,<br/>
-                <em>colleague.</em>
-              </h2>
-              <p class="mt-6 max-w-md text-[15px] leading-[1.65] opacity-80">
-                회사 이메일을 입력하시면 6자리 인증 코드가 발송됩니다. <span class="font-mono text-[var(--accent)]">@spigen.com</span> 도메인 계정만 인증 가능합니다.
-              </p>
-            </div>
-            <div class="flex items-center gap-2 text-[11px] font-mono opacity-50">
-              <span class="w-2 h-2 rounded-full bg-[var(--accent)]"></span>
-              <span>SPIGEN KOREA · HR · CONFIDENTIAL</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right form -->
-        <div class="flex-1 flex items-center justify-center p-12 bg-[var(--bg)]">
-          <div class="w-full max-w-[440px]">
-            <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)] mb-3">로그인 / Sign in</div>
-            <h3 class="font-display text-[40px] leading-[1.05] mb-2">건강검진 결과<br/><em>조회 시스템</em></h3>
-            <p class="text-[14px] text-[var(--ink-soft)] leading-relaxed mb-9">
-              본인 인증 후 본인 건강검진 결과만 조회됩니다. 관리자 권한이 부여된 계정은 통합 대시보드로 이동합니다.
-            </p>
-
-            <label class="block text-[12px] font-semibold text-[var(--ink-soft)] mb-2 tracking-wide">회사 이메일</label>
-            <div class="relative">
-              <input
-                type="email"
-                value="wonsik@spigen.com"
-                class="w-full bg-[var(--card)] border border-[var(--line)] focus:border-[var(--ink)] focus:outline-none rounded-xl px-4 py-3.5 text-[15px] font-mono pr-32 transition"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 pill v-A">
-                <span class="pill-dot" style="background:var(--ok);"></span>도메인 확인됨
-              </span>
-            </div>
-            <p class="text-[12px] text-[var(--ink-mute)] mt-2 leading-relaxed">
-              · 사번이 등록된 임직원만 인증됩니다 · 인증 코드 유효 시간 5분
-            </p>
-
-            <button onclick="show('otp')" class="mt-6 w-full bg-[var(--ink)] text-[#fffdf6] py-4 rounded-xl text-[15px] font-semibold hover:bg-[var(--accent)] transition flex items-center justify-center gap-2">
-              인증 코드 받기
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-            </button>
-
-            <div class="mt-10 pt-6 border-t border-dashed border-[var(--line)] grid grid-cols-3 gap-3 text-center">
-              <div>
-                <div class="font-display text-[22px]">256<span class="text-[var(--ink-mute)] text-[14px] font-sans">명</span></div>
-                <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mt-1">2025 검진</div>
-              </div>
-              <div class="border-x border-dashed border-[var(--line)]">
-                <div class="font-display text-[22px]">93.8<span class="text-[var(--ink-mute)] text-[14px] font-sans">%</span></div>
-                <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mt-1">적합 비율</div>
-              </div>
-              <div>
-                <div class="font-display text-[22px]">5<span class="text-[var(--ink-mute)] text-[14px] font-sans">개</span></div>
-                <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mt-1">검진기관</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ====================== SCREEN 2: OTP ====================== -->
-      <section id="screen-otp" class="screen min-h-screen hidden flex items-center justify-center bg-[var(--bg)] relative">
-        <div class="absolute inset-0 noise opacity-50"></div>
-        <div class="relative w-full max-w-[560px] card p-12 lift">
-          <div class="flex items-center justify-between mb-10">
-            <div>
-              <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)]">02 · Verify</div>
-              <h3 class="font-display text-[36px] leading-tight mt-2">인증 코드 입력</h3>
-            </div>
-            <div class="text-right">
-              <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">남은 시간</div>
-              <div class="font-display text-[28px] text-[var(--accent)]" id="timer">04:23</div>
-            </div>
-          </div>
-
-          <div class="bg-[var(--bg-2)] rounded-xl px-4 py-3 flex items-center gap-3 mb-8">
-            <div class="w-9 h-9 rounded-full bg-[var(--card)] grid place-items-center border border-[var(--line)]">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16v12H4zM4 6l8 7 8-7"/></svg>
-            </div>
-            <div class="text-[13px] leading-tight">
-              <div class="text-[var(--ink-mute)]">발송됨 · just now</div>
-              <div class="font-mono text-[14px]">wonsik@spigen.com</div>
-            </div>
-            <button class="ml-auto text-[12px] underline underline-offset-4 text-[var(--ink-soft)] hover:text-[var(--accent)]">다른 이메일</button>
-          </div>
-
-          <div class="flex justify-center gap-2.5 mb-3">
-            <div class="otp-cell filled">4</div>
-            <div class="otp-cell filled">7</div>
-            <div class="otp-cell filled">2</div>
-            <div class="otp-cell filled">9</div>
-            <div class="otp-cell active"><span class="caret"></span></div>
-            <div class="otp-cell"></div>
-          </div>
-          <p class="text-center text-[12px] text-[var(--ink-mute)] mb-8">메일로 받은 6자리 코드를 입력해 주세요</p>
-
-          <button onclick="show('user')" class="w-full bg-[var(--ink)] text-[#fffdf6] py-4 rounded-xl text-[15px] font-semibold hover:bg-[var(--accent)] transition mb-3">
-            인증하고 입장
-          </button>
-          <div class="flex items-center justify-between text-[12px]">
-            <button onclick="show('login')" class="text-[var(--ink-mute)] hover:text-[var(--ink)] transition">← 이메일 다시 입력</button>
-            <button class="text-[var(--ink-soft)] underline underline-offset-4 hover:text-[var(--accent)]">코드 재발송</button>
-          </div>
-
-          <div class="mt-10 pt-6 border-t border-dashed border-[var(--line)] flex items-start gap-3 text-[11px] text-[var(--ink-mute)] leading-relaxed">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-            <span>5회 이상 잘못 입력 시 30분간 인증이 차단됩니다. 인증 후 발급되는 세션은 8시간 동안 유지되며, 로그아웃 시 즉시 만료됩니다.</span>
-          </div>
-        </div>
-
-        <button onclick="show('admin')" class="absolute bottom-8 right-8 text-[11px] font-mono text-[var(--ink-mute)] hover:text-[var(--accent)] underline underline-offset-4">→ 관리자로 들어가기 (시안 전용)</button>
-      </section>
-
-      <!-- ====================== SCREEN 3: USER DASHBOARD ====================== -->
-      <section id="screen-user" class="screen hidden">
-        <!-- top bar -->
-        <div class="flex items-center justify-between px-10 py-5 border-b border-[var(--line)] bg-[var(--card)]">
-          <div class="flex items-center gap-3">
-            <span class="pill v-A"><span class="pill-dot" style="background:var(--ok);"></span>USER</span>
-            <span class="text-[13px] text-[var(--ink-mute)]">My Health Check-up</span>
-          </div>
-          <div class="flex items-center gap-5">
-            <div class="text-right">
-              <div class="text-[12px] text-[var(--ink-mute)]">로그인됨</div>
-              <div class="text-[13px] font-mono">wonsik@spigen.com</div>
-            </div>
-            <button class="text-[12px] px-3 py-1.5 border border-[var(--line)] rounded-lg hover:bg-[var(--bg-2)] transition">로그아웃</button>
-          </div>
-        </div>
-
-        <div class="p-10 max-w-[1240px]">
-          <!-- header -->
-          <div class="flex items-end justify-between mb-9">
-            <div>
-              <div class="text-[11px] font-mono tracking-[0.2em] uppercase text-[var(--ink-mute)] mb-2">2025년 정기 건강검진</div>
-              <h2 class="font-display text-[44px] leading-[1.05]">
-                안녕하세요, <em>이원식</em>님.<br/>
-                <span class="text-[var(--ink-mute)] text-[26px]">올해 검진은 모두 정상입니다.</span>
-              </h2>
-            </div>
-            <div class="flex gap-2">
-              <button class="text-[12px] px-3 py-2 border border-[var(--line)] rounded-lg hover:bg-[var(--bg-2)] transition flex items-center gap-1.5">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
-                결과지 PDF
-              </button>
-              <button class="text-[12px] px-3 py-2 border border-[var(--line)] rounded-lg hover:bg-[var(--bg-2)] transition">2024년 비교</button>
-            </div>
-          </div>
-
-          <!-- top row: verdict + meta -->
-          <div class="grid grid-cols-12 gap-5 mb-5">
-            <!-- Verdict -->
-            <div class="col-span-7 card p-7 relative overflow-hidden">
-              <div class="absolute top-0 right-0 w-40 h-40 -mr-10 -mt-10 rounded-full" style="background:var(--ok-soft);"></div>
-              <div class="relative">
-                <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)]">종합 판정</div>
-                <div class="flex items-baseline gap-3 mt-2">
-                  <h3 class="font-display text-[64px] leading-none text-[var(--ok)]">적합</h3>
-                  <span class="font-mono text-[14px] text-[var(--ink-mute)]">FIT FOR DUTY</span>
-                </div>
-                <p class="text-[14px] text-[var(--ink-soft)] mt-4 leading-relaxed max-w-md">
-                  업무 수행에 영향을 미치는 의학적 소견이 발견되지 않았습니다. <span class="text-[var(--accent)]">생활 습관을 유지</span>해 주세요.
-                </p>
-                <div class="flex gap-2 mt-5">
-                  <span class="tag">정상 10/10</span>
-                  <span class="tag">유소견 없음</span>
-                  <span class="tag">사후관리 불필요</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Meta -->
-            <div class="col-span-5 card p-7">
-              <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)] mb-4">검진 정보</div>
-              <div class="space-y-3.5 text-[13px]">
-                <div class="flex justify-between"><span class="text-[var(--ink-mute)]">사번</span><span class="font-mono">22081601</span></div>
-                <div class="flex justify-between"><span class="text-[var(--ink-mute)]">성별 / 연령</span><span>남 / 33세</span></div>
-                <div class="flex justify-between"><span class="text-[var(--ink-mute)]">검진기관</span><span>녹십자아이메드</span></div>
-                <div class="flex justify-between"><span class="text-[var(--ink-mute)]">검진일자</span><span class="font-mono">2025-09-12</span></div>
-                <div class="flex justify-between"><span class="text-[var(--ink-mute)]">결과 수신</span><span class="font-mono">2025-09-26</span></div>
-              </div>
-              <div class="mt-5 pt-4 border-t border-dashed border-[var(--line)] text-[11px] text-[var(--ink-mute)] leading-relaxed">
-                다음 검진 예상 시기 · <span class="text-[var(--ink-soft)] font-mono">2026년 9월</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 10 items grid -->
-          <div class="card p-7 mb-5">
-            <div class="flex items-center justify-between mb-5">
-              <div>
-                <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)]">검진 항목별 판정</div>
-                <h4 class="font-display text-[22px] mt-1">10개 항목 / 모두 <em class="text-[var(--ok)]">A 정상</em></h4>
-              </div>
-              <div class="flex gap-3 text-[11px]">
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--ok);"></span>A 정상</span>
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--info);"></span>B 경계</span>
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--warn);"></span>C 의심</span>
-                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--danger);"></span>D 유소견</span>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-5 gap-3">
-              <!-- item card template -->
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">혈압</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">118 / 76 mmHg</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">혈당</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">공복 92 mg/dL</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">비만</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">BMI 22.4</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">이상지질혈증</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">LDL 102</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">간장질환</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">AST/ALT 정상</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">신장질환</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">크레아티닌 0.9</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">청력저하</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">양측 정상</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">단백뇨</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">음성</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">흉부질환</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">X-ray 정상</div>
-              </div>
-              <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
-                <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">빈혈</span><span class="pill v-A">A</span></div>
-                <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">Hb 14.6</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- bottom: notes + history -->
-          <div class="grid grid-cols-12 gap-5">
-            <div class="col-span-7 card p-7">
-              <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)] mb-3">사후관리 소견</div>
-              <p class="font-display text-[24px] leading-snug">
-                <em>“정상.”</em> 별도 추가 검사 또는 의료기관 방문이 필요하지 않습니다.
-              </p>
-              <div class="mt-5 pt-5 border-t border-dashed border-[var(--line)] flex items-center gap-4 text-[12px] text-[var(--ink-soft)]">
-                <span class="pill v-A"><span class="pill-dot" style="background:var(--ok);"></span>상시 근무 가능</span>
-                <span class="text-[var(--ink-mute)]">검진기관 의견 · 녹십자아이메드</span>
-              </div>
-            </div>
-            <div class="col-span-5 card p-7">
-              <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)] mb-3">연도별 추이</div>
-              <div class="space-y-4">
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1.5"><span>2024년</span><span class="font-mono">A · 적합</span></div>
-                  <div class="bar"><span style="width:100%;background:var(--ok);"></span></div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1.5"><span>2025년</span><span class="font-mono">A · 적합</span></div>
-                  <div class="bar"><span style="width:100%;background:var(--ok);"></span></div>
-                </div>
-              </div>
-              <div class="mt-5 pt-5 border-t border-dashed border-[var(--line)] text-[12px] text-[var(--ink-soft)] leading-relaxed">
-                2년 연속 정상 판정. 같은 항목 추적 시 <span class="text-[var(--accent)]">↗ 항목별 비교 보기</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ====================== SCREEN 4: ADMIN DASHBOARD ====================== -->
-      <section id="screen-admin" class="screen hidden">
-        <!-- top bar -->
-        <div class="flex items-center justify-between px-10 py-5 border-b border-[var(--line)] bg-[var(--card)]">
-          <div class="flex items-center gap-3">
-            <span class="pill v-R"><span class="pill-dot" style="background:var(--accent);"></span>ADMIN</span>
-            <span class="text-[13px] text-[var(--ink-mute)]">통합 대시보드 · HR 인재개발팀</span>
-          </div>
-          <div class="flex items-center gap-3">
-            <select class="text-[12px] bg-[var(--card)] border border-[var(--line)] rounded-lg px-3 py-1.5 font-mono">
-              <option>2025년</option><option>2024년</option>
-            </select>
-            <button class="text-[12px] px-3 py-1.5 border border-[var(--line)] rounded-lg hover:bg-[var(--bg-2)] transition">CSV 내보내기</button>
-            <button class="text-[12px] px-3 py-1.5 bg-[var(--ink)] text-[#fffdf6] rounded-lg hover:bg-[var(--accent)] transition">미수검자 알림 발송</button>
-          </div>
-        </div>
-
-        <div class="p-10">
-          <!-- header -->
-          <div class="flex items-end justify-between mb-8">
-            <div>
-              <div class="text-[11px] font-mono tracking-[0.2em] uppercase text-[var(--ink-mute)] mb-2">FY 2025 · 임직원 건강검진</div>
-              <h2 class="font-display text-[42px] leading-[1.05]">전사 건강 현황 <em class="text-[var(--accent)]">한눈에</em></h2>
-              <p class="text-[13px] text-[var(--ink-mute)] mt-2">마지막 갱신 · <span class="font-mono">2026-04-29 09:14</span> · 자동 동기화 · Google Sheets</p>
-            </div>
-            <div class="flex items-center gap-2 text-[11px] font-mono">
-              <span class="pill v-A"><span class="pill-dot" style="background:var(--ok);"></span>SYNCED</span>
-            </div>
-          </div>
-
-          <!-- KPI cards -->
-          <div class="grid grid-cols-4 gap-4 mb-6">
-            <div class="card p-6 lift">
-              <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">검진 인원</div>
-              <div class="font-display text-[42px] mt-2 leading-none">256<span class="text-[16px] text-[var(--ink-mute)] font-sans ml-1">명</span></div>
-              <div class="mt-3 text-[11px] text-[var(--ink-soft)]">전년 대비 <span class="text-[var(--ok)]">+12%</span> · 미수검 <span class="font-mono">8명</span></div>
-            </div>
-            <div class="card p-6 lift">
-              <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">적합 판정</div>
-              <div class="font-display text-[42px] mt-2 leading-none text-[var(--ok)]">93.8<span class="text-[16px] text-[var(--ink-mute)] font-sans ml-1">%</span></div>
-              <div class="mt-3 text-[11px] text-[var(--ink-soft)]"><span class="font-mono">240명</span> · 무소견 적합</div>
-            </div>
-            <div class="card p-6 lift">
-              <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">조건부 적합</div>
-              <div class="font-display text-[42px] mt-2 leading-none text-[var(--warn)]">6.2<span class="text-[16px] text-[var(--ink-mute)] font-sans ml-1">%</span></div>
-              <div class="mt-3 text-[11px] text-[var(--ink-soft)]"><span class="font-mono">16명</span> · 사후관리 대상</div>
-            </div>
-            <div class="card p-6 lift relative overflow-hidden">
-              <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">유소견 항목 보유자</div>
-              <div class="font-display text-[42px] mt-2 leading-none text-[var(--accent)]">23<span class="text-[16px] text-[var(--ink-mute)] font-sans ml-1">명</span></div>
-              <div class="mt-3 text-[11px] text-[var(--ink-soft)]">D 판정 1+ 보유 · <span class="text-[var(--accent)]">팔로업 필요</span></div>
-            </div>
-          </div>
-
-          <!-- charts row -->
-          <div class="grid grid-cols-12 gap-5 mb-6">
-            <!-- Donut: 검진기관 -->
-            <div class="col-span-4 card p-6">
-              <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">검진기관 분포</div>
-              <h4 class="font-display text-[20px] mt-1 mb-5">5개 협력 기관</h4>
-              <div class="flex items-center gap-6">
-                <svg width="150" height="150" viewBox="0 0 100 100" class="donut">
-                  <!-- segments: KMI 49, 녹십자 32, 소중한 11, 한신 4, 나은 4 -->
-                  <circle cx="50" cy="50" r="40" class="donut-seg" stroke="#dcd5c6"/>
-                  <circle cx="50" cy="50" r="40" class="donut-seg" stroke="#C24E2E" stroke-dasharray="123 251" stroke-dashoffset="0"/>
-                  <circle cx="50" cy="50" r="40" class="donut-seg" stroke="#3a6b4d" stroke-dasharray="80 251" stroke-dashoffset="-123"/>
-                  <circle cx="50" cy="50" r="40" class="donut-seg" stroke="#2c544f" stroke-dasharray="28 251" stroke-dashoffset="-203"/>
-                  <circle cx="50" cy="50" r="40" class="donut-seg" stroke="#a8772b" stroke-dasharray="10 251" stroke-dashoffset="-231"/>
-                  <circle cx="50" cy="50" r="40" class="donut-seg" stroke="#8e3120" stroke-dasharray="10 251" stroke-dashoffset="-241"/>
-                </svg>
-                <div class="flex-1 space-y-2 text-[12px]">
-                  <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm" style="background:#C24E2E;"></span>KMI한국의학연구소<span class="ml-auto font-mono">125 · 49%</span></div>
-                  <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm" style="background:#3a6b4d;"></span>녹십자아이메드<span class="ml-auto font-mono">82 · 32%</span></div>
-                  <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm" style="background:#2c544f;"></span>소중한메디케어의원<span class="ml-auto font-mono">29 · 11%</span></div>
-                  <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm" style="background:#a8772b;"></span>한신메디피아<span class="ml-auto font-mono">10 · 4%</span></div>
-                  <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-sm" style="background:#8e3120;"></span>나은병원<span class="ml-auto font-mono">10 · 4%</span></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 항목별 유소견율 -->
-            <div class="col-span-5 card p-6">
-              <div class="flex items-end justify-between">
-                <div>
-                  <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">검진 항목별 유소견율</div>
-                  <h4 class="font-display text-[20px] mt-1">C·D 판정 비율 <em class="text-[var(--ink-mute)] text-[14px]">/ 10개 항목</em></h4>
-                </div>
-                <span class="text-[10px] font-mono text-[var(--ink-mute)]">% of 256</span>
-              </div>
-              <div class="mt-5 space-y-3">
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1"><span>이상지질혈증</span><span class="font-mono">5.9%</span></div>
-                  <div class="bar"><span style="width:59%;background:var(--accent);"></span></div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1"><span>비만</span><span class="font-mono">4.3%</span></div>
-                  <div class="bar"><span style="width:43%;background:var(--accent);"></span></div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1"><span>혈압</span><span class="font-mono">2.7%</span></div>
-                  <div class="bar"><span style="width:27%;background:var(--accent);"></span></div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1"><span>간장질환</span><span class="font-mono">2.3%</span></div>
-                  <div class="bar"><span style="width:23%;background:var(--accent);"></span></div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1"><span>혈당</span><span class="font-mono">1.6%</span></div>
-                  <div class="bar"><span style="width:16%;background:var(--accent);"></span></div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-[12px] mb-1"><span>흉부질환</span><span class="font-mono">0.8%</span></div>
-                  <div class="bar"><span style="width:8%;background:var(--accent);"></span></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 연령대 분포 -->
-            <div class="col-span-3 card p-6">
-              <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">연령대 분포</div>
-              <h4 class="font-display text-[20px] mt-1 mb-5">평균 <em>32.4</em>세</h4>
-              <div class="flex items-end justify-between gap-2 h-32">
-                <div class="flex flex-col items-center gap-2 flex-1">
-                  <div class="text-[10px] font-mono">8</div>
-                  <div class="w-full bg-[var(--accent)] opacity-60 rounded-t" style="height:18%;"></div>
-                  <div class="text-[10px] text-[var(--ink-mute)]">20s↓</div>
-                </div>
-                <div class="flex flex-col items-center gap-2 flex-1">
-                  <div class="text-[10px] font-mono">112</div>
-                  <div class="w-full bg-[var(--accent)] rounded-t" style="height:90%;"></div>
-                  <div class="text-[10px] text-[var(--ink-mute)]">20s</div>
-                </div>
-                <div class="flex flex-col items-center gap-2 flex-1">
-                  <div class="text-[10px] font-mono">98</div>
-                  <div class="w-full bg-[var(--accent)] rounded-t" style="height:78%;"></div>
-                  <div class="text-[10px] text-[var(--ink-mute)]">30s</div>
-                </div>
-                <div class="flex flex-col items-center gap-2 flex-1">
-                  <div class="text-[10px] font-mono">32</div>
-                  <div class="w-full bg-[var(--accent)] opacity-70 rounded-t" style="height:30%;"></div>
-                  <div class="text-[10px] text-[var(--ink-mute)]">40s</div>
-                </div>
-                <div class="flex flex-col items-center gap-2 flex-1">
-                  <div class="text-[10px] font-mono">6</div>
-                  <div class="w-full bg-[var(--accent)] opacity-50 rounded-t" style="height:8%;"></div>
-                  <div class="text-[10px] text-[var(--ink-mute)]">50s↑</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- table -->
-          <div class="card overflow-hidden">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--line)]">
-              <div>
-                <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">사후관리 대상자</div>
-                <h4 class="font-display text-[20px] mt-1">조건부적합 16명 <em class="text-[var(--ink-mute)] text-[14px]">/ 검진 후 30일 내 팔로업</em></h4>
-              </div>
-              <div class="flex items-center gap-2">
-                <div class="relative">
-                  <input placeholder="성명·사번·이메일 검색" class="bg-[var(--bg-2)] border border-[var(--line)] rounded-lg px-3 py-1.5 text-[12px] font-mono w-56 focus:outline-none focus:border-[var(--ink)]" />
-                </div>
-                <button class="text-[12px] px-3 py-1.5 border border-[var(--line)] rounded-lg hover:bg-[var(--bg-2)] transition flex items-center gap-1">필터 <span class="font-mono text-[10px] text-[var(--ink-mute)]">3</span></button>
-              </div>
-            </div>
-            <table class="dash">
-              <thead>
-                <tr>
-                  <th>성명</th>
-                  <th>사번</th>
-                  <th>성별·연령</th>
-                  <th>판정</th>
-                  <th>유소견 항목</th>
-                  <th>사후관리 소견</th>
-                  <th>검진기관</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td class="font-medium">강민수</td>
-                  <td class="font-mono text-[12px] text-[var(--ink-mute)]">22030901</td>
-                  <td>남 · 27</td>
-                  <td><span class="pill v-D">조건부</span></td>
-                  <td><span class="tag" style="background:var(--danger-soft);color:var(--danger);border-color:transparent;">혈압 D</span></td>
-                  <td class="text-[12px] text-[var(--ink-soft)] max-w-[280px] truncate">고혈압 의심 / 30일 내 확진검사 필요</td>
-                  <td class="text-[var(--ink-mute)] text-[12px]">KMI한국의학연구소</td>
-                  <td><button class="text-[11px] underline underline-offset-4 hover:text-[var(--accent)]">상세</button></td>
-                </tr>
-                <tr>
-                  <td class="font-medium">김도현</td>
-                  <td class="font-mono text-[12px] text-[var(--ink-mute)]">19112202</td>
-                  <td>남 · 38</td>
-                  <td><span class="pill v-D">조건부</span></td>
-                  <td class="space-x-1">
-                    <span class="tag" style="background:var(--warn-soft);color:var(--warn);border-color:transparent;">이상지질 C</span>
-                    <span class="tag" style="background:var(--warn-soft);color:var(--warn);border-color:transparent;">비만 C</span>
-                  </td>
-                  <td class="text-[12px] text-[var(--ink-soft)] max-w-[280px] truncate">고지혈증 추적 / 3개월 후 재검</td>
-                  <td class="text-[var(--ink-mute)] text-[12px]">녹십자아이메드</td>
-                  <td><button class="text-[11px] underline underline-offset-4 hover:text-[var(--accent)]">상세</button></td>
-                </tr>
-                <tr>
-                  <td class="font-medium">이서윤</td>
-                  <td class="font-mono text-[12px] text-[var(--ink-mute)]">21042705</td>
-                  <td>여 · 31</td>
-                  <td><span class="pill v-D">조건부</span></td>
-                  <td><span class="tag" style="background:var(--danger-soft);color:var(--danger);border-color:transparent;">간장 D</span></td>
-                  <td class="text-[12px] text-[var(--ink-soft)] max-w-[280px] truncate">간기능 이상 / 전문의 상담 권고</td>
-                  <td class="text-[var(--ink-mute)] text-[12px]">KMI한국의학연구소</td>
-                  <td><button class="text-[11px] underline underline-offset-4 hover:text-[var(--accent)]">상세</button></td>
-                </tr>
-                <tr>
-                  <td class="font-medium">박지훈</td>
-                  <td class="font-mono text-[12px] text-[var(--ink-mute)]">23010904</td>
-                  <td>남 · 29</td>
-                  <td><span class="pill v-D">조건부</span></td>
-                  <td><span class="tag" style="background:var(--warn-soft);color:var(--warn);border-color:transparent;">혈당 C</span></td>
-                  <td class="text-[12px] text-[var(--ink-soft)] max-w-[280px] truncate">공복혈당장애 / 생활습관 개선</td>
-                  <td class="text-[var(--ink-mute)] text-[12px]">소중한메디케어의원</td>
-                  <td><button class="text-[11px] underline underline-offset-4 hover:text-[var(--accent)]">상세</button></td>
-                </tr>
-                <tr>
-                  <td class="font-medium">최유나</td>
-                  <td class="font-mono text-[12px] text-[var(--ink-mute)]">20060812</td>
-                  <td>여 · 34</td>
-                  <td><span class="pill v-D">조건부</span></td>
-                  <td><span class="tag" style="background:var(--warn-soft);color:var(--warn);border-color:transparent;">빈혈 C</span></td>
-                  <td class="text-[12px] text-[var(--ink-soft)] max-w-[280px] truncate">철결핍성 빈혈 의심 / 추가 검사</td>
-                  <td class="text-[var(--ink-mute)] text-[12px]">녹십자아이메드</td>
-                  <td><button class="text-[11px] underline underline-offset-4 hover:text-[var(--accent)]">상세</button></td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="flex items-center justify-between px-6 py-3 border-t border-[var(--line)] text-[11px] text-[var(--ink-mute)]">
-              <div>16건 중 1–5 표시</div>
-              <div class="flex items-center gap-2 font-mono">
-                <button class="px-2 py-1 hover:text-[var(--ink)]">‹</button>
-                <span class="px-2 py-1 bg-[var(--ink)] text-[#fffdf6] rounded">1</span>
-                <span class="px-2 py-1">2</span>
-                <span class="px-2 py-1">3</span>
-                <span class="px-2 py-1">4</span>
-                <button class="px-2 py-1 hover:text-[var(--ink)]">›</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- footer note -->
-          <div class="mt-8 pt-6 border-t border-dashed border-[var(--line)] flex items-start gap-3 text-[11px] text-[var(--ink-mute)] leading-relaxed max-w-3xl">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="mt-0.5 shrink-0"><path d="M12 22s-8-4.5-8-11.5A8 8 0 0 1 20 10.5C20 17.5 12 22 12 22z"/><circle cx="12" cy="10" r="3"/></svg>
-            <span>본 화면은 인재개발팀 권한자만 접근 가능합니다. 모든 조회·다운로드 기록은 <span class="text-[var(--ink-soft)] font-mono">access_log</span> 시트에 자동 기록되며, 개인정보 처리방침에 따라 90일간 보관됩니다.</span>
-          </div>
-        </div>
-      </section>
-
-    </main>
+    <div class="text-center mt-4 text-[11px] text-[var(--ink-mute)]">
+      @spigen.com 이메일만 접근 가능합니다
+    </div>
   </div>
+</div>
 
-  <div class="watermark">Mockup · v0.1</div>
+<!-- ======================== APP SCREEN ======================== -->
+<div id="app-screen" class="hidden flex min-h-screen">
 
-  <script>
-    const screens = ['login','otp','user','admin'];
-    function show(name){
-      screens.forEach(s => {
-        document.getElementById('screen-'+s).classList.toggle('hidden', s !== name);
-        const nav = document.getElementById('nav-'+s);
-        if(nav) nav.classList.toggle('active', s === name);
-      });
-      window.scrollTo({top:0,behavior:'smooth'});
-    }
+  <!-- SIDEBAR -->
+  <aside class="w-[272px] shrink-0 border-r border-[var(--line)] bg-[var(--card)] flex flex-col">
+    <div class="px-7 pt-9 pb-6 border-b border-[var(--line)] relative grain">
+      <div class="text-[10px] tracking-[0.22em] text-[var(--ink-mute)] uppercase font-mono">Spigen Korea · HR</div>
+      <h1 class="font-display text-[28px] leading-[1.02] mt-2.5">
+        Health <em class="not-italic" style="font-style:italic;font-weight:400;">Check-up</em><br />
+        <span class="text-[var(--accent)]">Suite.</span>
+      </h1>
+      <p class="text-[12px] text-[var(--ink-mute)] mt-3 leading-relaxed">임직원 건강검진<br/>통합 대시보드</p>
+    </div>
 
-    // Tiny OTP timer
-    let t = 263; // 4:23
-    setInterval(() => {
-      if (document.getElementById('screen-otp').classList.contains('hidden')) return;
-      t = Math.max(0, t - 1);
-      const m = Math.floor(t/60).toString().padStart(2,'0');
-      const s = (t%60).toString().padStart(2,'0');
-      const el = document.getElementById('timer');
-      if (el) el.textContent = `${m}:${s}`;
-    }, 1000);
-  </script>
+    <nav class="flex-1 p-4 space-y-1.5">
+      <div class="px-2 pb-2 text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--ink-mute)]">대시보드</div>
+      <div class="nav-item active" onclick="showTab('user', this)">
+        <span class="step-num">01</span>
+        <span>사용자 화면</span>
+        <span class="ml-auto pill v-A">USER</span>
+      </div>
+      <div class="nav-item" onclick="showTab('admin', this)">
+        <span class="step-num">02</span>
+        <span>관리자 화면</span>
+        <span class="ml-auto pill v-R">ADMIN</span>
+      </div>
+    </nav>
+
+    <!-- 로그인 정보 + 로그아웃 -->
+    <div class="m-4 p-4 rounded-xl border border-[var(--line)] bg-[var(--bg-2)]">
+      <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-1">로그인 계정</div>
+      <div class="text-[13px] font-medium text-[var(--ink)] truncate" id="user-name"></div>
+      <div class="text-[11px] text-[var(--ink-mute)] truncate mb-3" id="user-email"></div>
+      <button onclick="logout()" class="w-full text-[12px] py-2 px-3 rounded-lg border border-[var(--line)] hover:bg-[var(--card)] transition text-[var(--ink-soft)]">로그아웃</button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="flex-1 overflow-y-auto scroll-thin">
+
+    <!-- USER TAB -->
+    <section id="tab-user" class="screen p-10 max-w-4xl">
+      <div class="mb-8">
+        <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">내 건강검진 결과</div>
+        <h2 class="font-display text-[32px] mt-1">2025년 건강검진 <em style="font-style:italic;">결과 요약</em></h2>
+      </div>
+
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="card p-5 lift">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-2">종합판정</div>
+          <div class="font-display text-[40px] leading-none text-[var(--ok)]">A</div>
+          <div class="text-[12px] text-[var(--ink-mute)] mt-2">정상</div>
+        </div>
+        <div class="card p-5 lift">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-2">검진일</div>
+          <div class="font-display text-[22px] leading-tight mt-1">2025.03.14</div>
+          <div class="text-[12px] text-[var(--ink-mute)] mt-2">KMI 한국의학연구소</div>
+        </div>
+        <div class="card p-5 lift">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-2">유소견 항목</div>
+          <div class="font-display text-[40px] leading-none">0</div>
+          <div class="text-[12px] text-[var(--ink-mute)] mt-2">이상 없음</div>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <div class="text-[11px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-4">항목별 결과</div>
+        <div class="space-y-4">
+          <div class="flex items-center gap-4">
+            <div class="w-24 text-[13px] text-[var(--ink-soft)]">혈압</div>
+            <div class="flex-1 bar"><span style="width:60%;background:var(--ok)"></span></div>
+            <div class="text-[12px] font-mono">120/80</div>
+            <span class="pill v-A">정상</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="w-24 text-[13px] text-[var(--ink-soft)]">혈당</div>
+            <div class="flex-1 bar"><span style="width:55%;background:var(--ok)"></span></div>
+            <div class="text-[12px] font-mono">95 mg/dL</div>
+            <span class="pill v-A">정상</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="w-24 text-[13px] text-[var(--ink-soft)]">콜레스테롤</div>
+            <div class="flex-1 bar"><span style="width:70%;background:var(--warn)"></span></div>
+            <div class="text-[12px] font-mono">185 mg/dL</div>
+            <span class="pill v-B">양호</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="w-24 text-[13px] text-[var(--ink-soft)]">BMI</div>
+            <div class="flex-1 bar"><span style="width:50%;background:var(--ok)"></span></div>
+            <div class="text-[12px] font-mono">22.4</div>
+            <span class="pill v-A">정상</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADMIN TAB -->
+    <section id="tab-admin" class="screen hidden p-10">
+      <div class="mb-8">
+        <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">관리자 전용</div>
+        <h2 class="font-display text-[32px] mt-1">임직원 건강검진 <em style="font-style:italic;">현황</em></h2>
+      </div>
+
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="card p-5 lift">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-2">전체 대상자</div>
+          <div class="font-display text-[36px]">247</div>
+          <div class="text-[12px] text-[var(--ink-mute)] mt-1">명</div>
+        </div>
+        <div class="card p-5 lift">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-2">검진 완료</div>
+          <div class="font-display text-[36px] text-[var(--ok)]">231</div>
+          <div class="text-[12px] text-[var(--ink-mute)] mt-1">명 (93.5%)</div>
+        </div>
+        <div class="card p-5 lift">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-2">정상 판정</div>
+          <div class="font-display text-[36px] text-[var(--info)]">189</div>
+          <div class="text-[12px] text-[var(--ink-mute)] mt-1">명 (81.8%)</div>
+        </div>
+        <div class="card p-5 lift">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)] mb-2">사후관리 필요</div>
+          <div class="font-display text-[36px] text-[var(--danger)]">16</div>
+          <div class="text-[12px] text-[var(--ink-mute)] mt-1">명</div>
+        </div>
+      </div>
+
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--line)]">
+          <h4 class="font-display text-[20px]">사후관리 대상자 <em class="text-[var(--ink-mute)] text-[14px]">/ 16명</em></h4>
+        </div>
+        <table class="dash">
+          <thead>
+            <tr>
+              <th>성명</th><th>사번</th><th>성별·연령</th><th>판정</th><th>유소견 항목</th><th>사후관리 소견</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="font-medium">강민수</td>
+              <td class="font-mono text-[12px] text-[var(--ink-mute)]">22030901</td>
+              <td>남 · 27</td>
+              <td><span class="pill v-D">조건부</span></td>
+              <td><span class="tag" style="background:var(--danger-soft);color:var(--danger);border-color:transparent;">혈압 D</span></td>
+              <td class="text-[12px] text-[var(--ink-soft)]">고혈압 의심 / 30일 내 확진검사 필요</td>
+            </tr>
+            <tr>
+              <td class="font-medium">김도현</td>
+              <td class="font-mono text-[12px] text-[var(--ink-mute)]">19112202</td>
+              <td>남 · 38</td>
+              <td><span class="pill v-D">조건부</span></td>
+              <td><span class="tag" style="background:var(--warn-soft);color:var(--warn);border-color:transparent;">이상지질 C</span></td>
+              <td class="text-[12px] text-[var(--ink-soft)]">고지혈증 추적 / 3개월 후 재검</td>
+            </tr>
+            <tr>
+              <td class="font-medium">이서윤</td>
+              <td class="font-mono text-[12px] text-[var(--ink-mute)]">21042705</td>
+              <td>여 · 31</td>
+              <td><span class="pill v-D">조건부</span></td>
+              <td><span class="tag" style="background:var(--danger-soft);color:var(--danger);border-color:transparent;">간장 D</span></td>
+              <td class="text-[12px] text-[var(--ink-soft)]">간기능 이상 / 전문의 상담 권고</td>
+            </tr>
+            <tr>
+              <td class="font-medium">박지훈</td>
+              <td class="font-mono text-[12px] text-[var(--ink-mute)]">23010904</td>
+              <td>남 · 29</td>
+              <td><span class="pill v-D">조건부</span></td>
+              <td><span class="tag" style="background:var(--warn-soft);color:var(--warn);border-color:transparent;">혈당 C</span></td>
+              <td class="text-[12px] text-[var(--ink-soft)]">공복혈당장애 / 생활습관 개선</td>
+            </tr>
+            <tr>
+              <td class="font-medium">최유나</td>
+              <td class="font-mono text-[12px] text-[var(--ink-mute)]">20060812</td>
+              <td>여 · 34</td>
+              <td><span class="pill v-D">조건부</span></td>
+              <td><span class="tag" style="background:var(--warn-soft);color:var(--warn);border-color:transparent;">빈혈 C</span></td>
+              <td class="text-[12px] text-[var(--ink-soft)]">철결핍성 빈혈 의심 / 추가 검사</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="watermark">Spigen HR · v1.0</div>
+
+<script>
+  function showTab(name, el) {
+    document.querySelectorAll('[id^="tab-"]').forEach(t => t.classList.add('hidden'));
+    document.getElementById('tab-' + name).classList.remove('hidden');
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    el.classList.add('active');
+  }
+</script>
 </body>
 </html>
+
+ 
