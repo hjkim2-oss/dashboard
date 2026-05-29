@@ -156,19 +156,133 @@
     }
 
     // 이메일로 엑셀 데이터에서 이름 찾기
-    const allData = [...(window.HEALTH_DB?.['2025년'] || []), ...(window.HEALTH_DB?.['2024년'] || [])];
-    const matched = allData.find(r => r.이메일 && r.이메일.trim().toLowerCase() === user.email.trim().toLowerCase());
+    const email = user.email.trim().toLowerCase();
+    const db25 = window.HEALTH_DB?.['2025년'] || [];
+    const db24 = window.HEALTH_DB?.['2024년'] || [];
+    const matched25 = db25.find(r => r.이메일 && r.이메일.trim().toLowerCase() === email);
+    const matched = matched25 || db24.find(r => r.이메일 && r.이메일.trim().toLowerCase() === email);
     const name = matched ? matched.성명 : (user.displayName || user.email.split('@')[0]);
 
     document.getElementById('user-name').textContent = name;
     const dn = document.getElementById('user-display-name');
     if (dn) dn.textContent = name;
 
+    // 2025년 데이터로 사용자 탭 렌더링
+    renderUserTab(matched25 || matched);
+
     // 2024년 데이터 없으면 비교 버튼 숨김
-    const db24check = window.HEALTH_DB?.['2024년'] || [];
-    const has2024 = db24check.some(r => r.이메일 && r.이메일.trim().toLowerCase() === user.email.trim().toLowerCase());
+    const has2024 = db24.some(r => r.이메일 && r.이메일.trim().toLowerCase() === email);
     const compareBtn = document.querySelector('button[onclick*="openCompareModal"]');
     if (compareBtn) compareBtn.style.display = has2024 ? '' : 'none';
+  }
+
+  function renderUserTab(userData) {
+    const ITEMS_CONFIG = [
+      { key: '혈압',       label: '혈압' },
+      { key: '혈당',       label: '혈당' },
+      { key: '비만',       label: '비만' },
+      { key: '이상지질혈증', label: '콜레스테롤' },
+      { key: '간장질환',   label: '간장질환' },
+      { key: '신장질환',   label: '신장질환' },
+      { key: '청력저하',   label: '청력저하' },
+      { key: '단백뇨',     label: '단백뇨' },
+      { key: '흉부질환',   label: '흉부질환' },
+      { key: '빈혈',       label: '빈혈' },
+    ];
+    const GRADE_ORDER = ['D','C','B','A'];
+    const GRADE_LABEL = { A:'정상', B:'경계', C:'의심', D:'유소견' };
+    const GRADE_CLASS = { A:'v-A', B:'v-B', C:'v-C', D:'v-D' };
+
+    if (!userData) return;
+
+    const grades = ITEMS_CONFIG.map(i => userData[i.key]).filter(Boolean);
+    const worstGrade = GRADE_ORDER.find(g => grades.includes(g)) || 'A';
+    const issueCnt = grades.filter(g => g !== 'A').length;
+    const isFit = userData.적합여부 !== '조건부적합';
+
+    // 헤더 부제목
+    const headerSubEl = document.getElementById('user-header-sub');
+    if (headerSubEl) {
+      headerSubEl.textContent = issueCnt === 0 ? '올해 검진은 모두 정상입니다.' : `유소견 ${issueCnt}개 항목이 있습니다.`;
+      headerSubEl.style.color = issueCnt === 0 ? '' : 'var(--warn)';
+    }
+
+    // 종합 판정 카드
+    const verdictBgEl = document.getElementById('user-verdict-bg');
+    if (verdictBgEl) verdictBgEl.style.background = `var(${isFit ? '--ok-soft' : '--warn-soft'})`;
+
+    const verdictEl = document.getElementById('user-verdict-label');
+    if (verdictEl) {
+      verdictEl.textContent = isFit ? '적합' : '조건부';
+      verdictEl.style.color = `var(${isFit ? '--ok' : '--warn'})`;
+    }
+    const verdictEngEl = document.getElementById('user-verdict-eng');
+    if (verdictEngEl) verdictEngEl.textContent = isFit ? 'FIT FOR DUTY' : 'CONDITIONAL FIT';
+
+    const tagsEl = document.getElementById('user-verdict-tags');
+    if (tagsEl) {
+      if (issueCnt === 0) {
+        tagsEl.innerHTML = `<span class="tag">정상 ${grades.length}/${grades.length}</span><span class="tag">유소견 없음</span><span class="tag">사후관리 불필요</span>`;
+      } else {
+        const issueItems = ITEMS_CONFIG.filter(i => userData[i.key] && userData[i.key] !== 'A').map(i => i.label);
+        tagsEl.innerHTML = `<span class="tag">유소견 ${issueCnt}개</span><span class="tag">${issueItems.join(', ')}</span>`;
+      }
+    }
+
+    // 검진 정보 카드
+    const instEl = document.getElementById('user-meta-institution');
+    if (instEl) instEl.textContent = userData.검진기관 || '녹십자아이메드';
+    const dateEl = document.getElementById('user-meta-date');
+    if (dateEl) dateEl.textContent = userData.연도 || '2025년';
+    const verdictMetaEl = document.getElementById('user-meta-verdict');
+    if (verdictMetaEl) {
+      verdictMetaEl.textContent = `${worstGrade} ${GRADE_LABEL[worstGrade]}`;
+      const colorMap = { A:'var(--ok)', B:'var(--info)', C:'var(--warn)', D:'var(--danger)' };
+      verdictMetaEl.style.color = colorMap[worstGrade] || '';
+    }
+    const findingsEl = document.getElementById('user-meta-findings');
+    if (findingsEl) findingsEl.textContent = `${issueCnt}개`;
+
+    // 항목별 판정 제목
+    const titleEl = document.getElementById('user-items-title');
+    if (titleEl) {
+      const normalCnt = grades.filter(g => g === 'A').length;
+      titleEl.innerHTML = issueCnt === 0
+        ? `${grades.length}개 항목 / 모두 <em style="color:var(--ok)">A 정상</em>`
+        : `${grades.length}개 항목 / 정상 <em style="color:var(--ok)">${normalCnt}개</em> · 유소견 <em style="color:var(--danger)">${issueCnt}개</em>`;
+    }
+
+    // 항목 카드 그리드
+    const gridEl = document.getElementById('user-items-grid');
+    if (gridEl) {
+      gridEl.innerHTML = ITEMS_CONFIG.map(({ key, label }) => {
+        const grade = userData[key] || '-';
+        const cls = GRADE_CLASS[grade] || '';
+        return `
+          <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
+            <div class="flex items-center justify-between">
+              <span class="text-[12px] text-[var(--ink-soft)]">${label}</span>
+              <span class="pill ${cls}">${grade}</span>
+            </div>
+            <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">${GRADE_LABEL[grade] || '-'}</div>
+          </div>`;
+      }).join('');
+    }
+
+    // 사후관리 소견
+    const aftercareEl = document.getElementById('user-aftercare-text');
+    if (aftercareEl) {
+      aftercareEl.innerHTML = issueCnt === 0
+        ? `<em>"정상."</em> 별도 추가 검사 또는 의료기관 방문이 필요하지 않습니다.`
+        : `<em>"유소견 ${issueCnt}건."</em> 해당 항목에 대한 전문의 상담을 권장합니다.`;
+    }
+    const statusEl = document.getElementById('user-aftercare-status');
+    if (statusEl) {
+      statusEl.className = `pill ${isFit ? 'v-A' : 'v-C'}`;
+      statusEl.innerHTML = `<span class="pill-dot" style="background:var(${isFit ? '--ok' : '--warn'});"></span>${isFit ? '상시 근무 가능' : '조건부 근무'}`;
+    }
+    const afterInstEl = document.getElementById('user-aftercare-institution');
+    if (afterInstEl) afterInstEl.textContent = `검진기관 의견 · ${userData.검진기관 || '녹십자아이메드'}`;
   }
 
   function showLoginScreen() {
@@ -359,7 +473,7 @@
           <div class="text-[11px] font-mono tracking-[0.2em] uppercase text-[var(--ink-mute)] mb-2">2025년 정기 건강검진</div>
           <h2 class="font-display text-[40px] leading-[1.05]">
             안녕하세요, <em id="user-display-name">회원</em>님.<br/>
-            <span class="text-[var(--ink-mute)] text-[24px]">올해 검진은 모두 정상입니다.</span>
+            <span id="user-header-sub" class="text-[var(--ink-mute)] text-[24px]">올해 검진은 모두 정상입니다.</span>
           </h2>
         </div>
         <div class="flex gap-2">
@@ -370,17 +484,17 @@
       <!-- top row: verdict + meta -->
       <div class="grid grid-cols-12 gap-5 mb-5">
         <div class="col-span-7 card p-7 relative overflow-hidden">
-          <div class="absolute top-0 right-0 w-40 h-40 -mr-10 -mt-10 rounded-full" style="background:var(--ok-soft);"></div>
+          <div id="user-verdict-bg" class="absolute top-0 right-0 w-40 h-40 -mr-10 -mt-10 rounded-full" style="background:var(--ok-soft);"></div>
           <div class="relative">
             <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)]">종합 판정</div>
             <div class="flex items-baseline gap-3 mt-2">
-              <h3 class="font-display text-[60px] leading-none text-[var(--ok)]">적합</h3>
-              <span class="font-mono text-[13px] text-[var(--ink-mute)]">FIT FOR DUTY</span>
+              <h3 id="user-verdict-label" class="font-display text-[60px] leading-none text-[var(--ok)]">적합</h3>
+              <span id="user-verdict-eng" class="font-mono text-[13px] text-[var(--ink-mute)]">FIT FOR DUTY</span>
             </div>
             <p class="text-[13px] text-[var(--ink-soft)] mt-4 leading-relaxed max-w-md">
               업무 수행에 영향을 미치는 의학적 소견이 발견되지 않았습니다. <span class="text-[var(--accent)]">생활 습관을 유지</span>해 주세요.
             </p>
-            <div class="flex gap-2 mt-5">
+            <div id="user-verdict-tags" class="flex gap-2 mt-5">
               <span class="tag">정상 10/10</span>
               <span class="tag">유소견 없음</span>
               <span class="tag">사후관리 불필요</span>
@@ -390,10 +504,10 @@
         <div class="col-span-5 card p-7">
           <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)] mb-4">검진 정보</div>
           <div class="space-y-3.5 text-[13px]">
-            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">검진기관</span><span>녹십자아이메드</span></div>
-            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">검진일자</span><span class="font-mono">2025년</span></div>
-            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">종합판정</span><span class="text-[var(--ok)] font-medium">A 정상</span></div>
-            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">유소견 항목</span><span>0개</span></div>
+            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">검진기관</span><span id="user-meta-institution">녹십자아이메드</span></div>
+            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">검진일자</span><span id="user-meta-date" class="font-mono">2025년</span></div>
+            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">종합판정</span><span id="user-meta-verdict" class="text-[var(--ok)] font-medium">A 정상</span></div>
+            <div class="flex justify-between"><span class="text-[var(--ink-mute)]">유소견 항목</span><span id="user-meta-findings">0개</span></div>
           </div>
           <div class="mt-5 pt-4 border-t border-dashed border-[var(--line)] text-[11px] text-[var(--ink-mute)] leading-relaxed">
             다음 검진 예상 시기 · <span class="text-[var(--ink-soft)] font-mono">2026년 3월</span>
@@ -406,7 +520,7 @@
         <div class="flex items-center justify-between mb-5">
           <div>
             <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)]">검진 항목별 판정</div>
-            <h4 class="font-display text-[22px] mt-1">10개 항목 / 모두 <em class="text-[var(--ok)]">A 정상</em></h4>
+            <h4 id="user-items-title" class="font-display text-[22px] mt-1">10개 항목 / 모두 <em class="text-[var(--ok)]">A 정상</em></h4>
           </div>
           <div class="flex gap-3 text-[11px]">
             <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--ok);"></span>A 정상</span>
@@ -415,7 +529,7 @@
             <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--danger);"></span>D 유소견</span>
           </div>
         </div>
-        <div class="grid grid-cols-5 gap-3">
+        <div id="user-items-grid" class="grid grid-cols-5 gap-3">
           <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
             <div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">혈압</span><span class="pill v-A">A</span></div>
             <div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">120 / 80 mmHg</div>
@@ -462,12 +576,12 @@
       <!-- 사후관리 소견 -->
       <div class="card p-7">
         <div class="text-[11px] font-mono tracking-[0.18em] uppercase text-[var(--ink-mute)] mb-3">사후관리 소견</div>
-        <p class="font-display text-[22px] leading-snug">
+        <p id="user-aftercare-text" class="font-display text-[22px] leading-snug">
           <em>"정상."</em> 별도 추가 검사 또는 의료기관 방문이 필요하지 않습니다.
         </p>
         <div class="mt-5 pt-5 border-t border-dashed border-[var(--line)] flex items-center gap-4 text-[12px] text-[var(--ink-soft)]">
-          <span class="pill v-A"><span class="pill-dot" style="background:var(--ok);"></span>상시 근무 가능</span>
-          <span class="text-[var(--ink-mute)]">검진기관 의견 · 녹십자아이메드</span>
+          <span id="user-aftercare-status" class="pill v-A"><span class="pill-dot" style="background:var(--ok);"></span>상시 근무 가능</span>
+          <span id="user-aftercare-institution" class="text-[var(--ink-mute)]">검진기관 의견 · 녹십자아이메드</span>
         </div>
       </div>
     </section>
@@ -512,6 +626,33 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 대사증후군 대상자 관리 -->
+      <div class="card overflow-hidden mb-6">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--line)]">
+          <div>
+            <div class="text-[10px] font-mono uppercase tracking-wider text-[var(--ink-mute)]">2025년 기준 · B·C·D 등급</div>
+            <h4 class="font-display text-[18px] mt-0.5">대사증후군 관리 대상자 <em id="metabolic-target-count" class="text-[var(--accent)] text-[13px] font-sans font-normal">/ -명</em></h4>
+          </div>
+          <div id="metabolic-item-counts" class="flex gap-3 text-[12px]"></div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="dash" style="min-width:600px;">
+            <thead>
+              <tr>
+                <th>성명</th><th>성별·연령</th>
+                <th style="color:var(--accent)">혈압</th>
+                <th style="color:var(--accent)">혈당</th>
+                <th style="color:var(--accent)">비만</th>
+                <th style="color:var(--accent)">이상지질혈증</th>
+                <th>위험인자</th><th>적합여부</th>
+              </tr>
+            </thead>
+            <tbody id="metabolic-tbody"></tbody>
+          </table>
+        </div>
+        <div id="metabolic-empty" class="hidden text-center py-8 text-[var(--ok)] text-[13px] font-medium">🎉 대사증후군 위험인자 대상자가 없습니다</div>
       </div>
 
       <!-- 전체 목록 -->
@@ -631,6 +772,7 @@ function renderAdmin() {
   document.getElementById('s-issues').textContent = issues;
 
   renderMetabolicTrend();
+  renderMetabolicTargets();
   renderItemChart();
   renderGenderChart();
   renderAgeChart();
@@ -808,6 +950,64 @@ function renderTable() {
       <td class="text-[11px] text-[var(--ink-mute)]">${r.검진기관}</td>
     </tr>
   `).join('');
+}
+
+function renderMetabolicTargets() {
+  const METAB = ['혈압','혈당','비만','이상지질혈증'];
+  const GRADE_CLASS = { A:'v-A', B:'v-B', C:'v-C', D:'v-D' };
+  const db25 = ((window.HEALTH_DB || {})['2025년'] || []);
+
+  const targets = db25.filter(r => METAB.some(k => ['B','C','D'].includes(r[k])));
+
+  // 항목별 카운트 칩
+  const countEl = document.getElementById('metabolic-item-counts');
+  if (countEl) {
+    countEl.innerHTML = METAB.map(k => {
+      const cnt = db25.filter(r => ['B','C','D'].includes(r[k])).length;
+      return `<span style="background:var(--accent-soft);color:var(--accent);padding:3px 10px;border-radius:999px;font-weight:600;">${k} <strong>${cnt}명</strong></span>`;
+    }).join('');
+  }
+
+  const cntEl = document.getElementById('metabolic-target-count');
+  if (cntEl) cntEl.textContent = `/ ${targets.length}명`;
+
+  const tbody = document.getElementById('metabolic-tbody');
+  const empty = document.getElementById('metabolic-empty');
+
+  if (!tbody) return;
+  if (targets.length === 0) {
+    tbody.innerHTML = '';
+    empty && empty.classList.remove('hidden');
+    return;
+  }
+  empty && empty.classList.add('hidden');
+
+  const pillColor = (g) => {
+    if (g === 'A') return 'background:var(--ok-soft);color:var(--ok)';
+    if (g === 'B') return 'background:var(--info-soft);color:var(--info)';
+    if (g === 'C') return 'background:var(--warn-soft);color:var(--warn)';
+    if (g === 'D') return 'background:var(--danger-soft);color:var(--danger)';
+    return 'background:var(--bg-2);color:var(--ink-mute)';
+  };
+
+  // 위험인자 수 내림차순 정렬
+  const sorted = [...targets].sort((a, b) => {
+    const ca = METAB.filter(k => ['B','C','D'].includes(a[k])).length;
+    const cb = METAB.filter(k => ['B','C','D'].includes(b[k])).length;
+    return cb - ca;
+  });
+
+  tbody.innerHTML = sorted.map(r => {
+    const riskCnt = METAB.filter(k => ['B','C','D'].includes(r[k])).length;
+    const isFit = r.적합여부 === '적합';
+    return `<tr>
+      <td class="font-medium" style="font-size:13px;">${r.성명}</td>
+      <td style="font-size:12px;color:var(--ink-mute);">${r.성별} · ${r.연령}세</td>
+      ${METAB.map(k => `<td><span class="pill" style="${pillColor(r[k])}">${r[k]||'-'}</span></td>`).join('')}
+      <td><span style="font-weight:700;font-size:13px;color:${riskCnt >= 2 ? 'var(--danger)' : 'var(--warn)'};">${riskCnt}개</span></td>
+      <td><span class="pill" style="${isFit ? 'background:var(--ok-soft);color:var(--ok)' : 'background:var(--danger-soft);color:var(--danger)'}">${r.적합여부}</span></td>
+    </tr>`;
+  }).join('');
 }
 
 // 관리자 탭 열릴 때 자동 렌더링
