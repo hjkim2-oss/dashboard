@@ -253,13 +253,14 @@
     }
 
     // 항목 카드 그리드
+    window._currentHealthData = userData;
     const gridEl = document.getElementById('user-items-grid');
     if (gridEl) {
       gridEl.innerHTML = ITEMS_CONFIG.map(({ key, label }) => {
         const grade = userData[key] || '-';
         const cls = GRADE_CLASS[grade] || '';
         return `
-          <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer">
+          <div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer" onclick="window.showHealthItemDetail('${key}', '${grade}')">
             <div class="flex items-center justify-between">
               <span class="text-[12px] text-[var(--ink-soft)]">${label}</span>
               <span class="pill ${cls}">${grade}</span>
@@ -420,6 +421,16 @@
 
     <div class="text-center mt-4 text-[11px] text-[var(--ink-mute)]">
       @spigen.com 이메일만 접근 가능합니다
+    </div>
+
+    <!-- 개발 미리보기 -->
+    <div style="margin-top:24px;padding-top:20px;border-top:1px dashed var(--line,#e0e0e0);text-align:center;">
+      <div style="font-size:10px;color:var(--ink-mute,#999);margin-bottom:10px;font-family:monospace;letter-spacing:0.1em;">DEV PREVIEW</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button onclick="window.devPreview('all-A')" style="background:var(--ok-soft,#f0faf0);border:1px solid var(--ok,#3a7d44);color:var(--ok,#3a7d44);border-radius:10px;padding:8px 14px;font-size:12px;cursor:pointer;font-weight:600;">✅ 전 항목 A (정상)</button>
+        <button onclick="window.devPreview('mixed')" style="background:var(--warn-soft,#fff8e1);border:1px solid var(--warn,#f59e0b);color:var(--warn,#f59e0b);border-radius:10px;padding:8px 14px;font-size:12px;cursor:pointer;font-weight:600;">⚠️ 주의 (B·C 포함)</button>
+        <button onclick="window.devPreview('bad')" style="background:var(--danger-soft,#fff0f0);border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);border-radius:10px;padding:8px 14px;font-size:12px;cursor:pointer;font-weight:600;">🔴 위험 (D 포함)</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1705,6 +1716,324 @@ function getDemoResponse(text) {
     el.classList.add('active');
     if (name === 'admin') renderAdmin();
   }
+</script>
+
+<!-- 검진 항목 상세 모달 -->
+<div id="health-item-modal" onclick="if(event.target===this)window.closeHealthItemModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:var(--paper,#fff);border-radius:20px;width:min(480px,92vw);max-height:85vh;overflow-y:auto;padding:32px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <button onclick="window.closeHealthItemModal()" style="position:absolute;top:16px;right:16px;background:none;border:none;cursor:pointer;font-size:20px;color:var(--ink-mute,#999);line-height:1;">✕</button>
+    <div id="him-icon" style="font-size:36px;margin-bottom:12px;"></div>
+    <div id="him-label" style="font-size:11px;font-family:monospace;letter-spacing:0.15em;text-transform:uppercase;color:var(--ink-mute,#999);margin-bottom:4px;"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+      <h3 id="him-title" style="font-size:22px;font-weight:700;margin:0;"></h3>
+      <span id="him-pill" class="pill" style="font-size:13px;padding:4px 12px;"></span>
+    </div>
+
+    <!-- 정상 기준 박스 -->
+    <div style="background:var(--ok-soft,#f0faf0);border-radius:12px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:10px;font-family:monospace;letter-spacing:0.12em;text-transform:uppercase;color:var(--ok,#3a7d44);margin-bottom:8px;">정상 기준</div>
+      <div id="him-normal" style="font-size:13px;line-height:1.7;color:var(--ink,#222);"></div>
+    </div>
+
+    <!-- 내 판정 (B/C/D일 때) -->
+    <div id="him-grade-box" style="border-radius:12px;padding:16px;margin-bottom:16px;display:none;">
+      <div style="font-size:10px;font-family:monospace;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:8px;" id="him-grade-label-top"></div>
+      <div id="him-grade-desc" style="font-size:13px;line-height:1.7;"></div>
+    </div>
+
+    <!-- 권고 사항 -->
+    <div id="him-advice-box" style="border-top:1px dashed var(--line,#e0e0e0);padding-top:16px;margin-top:4px;">
+      <div style="font-size:10px;font-family:monospace;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-mute,#999);margin-bottom:6px;">권고 사항</div>
+      <div id="him-advice" style="font-size:12px;line-height:1.7;color:var(--ink-soft,#555);"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+window.devPreview = function(mode) {
+  const presets = {
+    'all-A': {
+      성명: '홍길동 (미리보기)', 이메일: 'dev@spigen.com', 검진기관: '녹십자아이메드', 연도: '2025년', 적합여부: '적합',
+      혈압:'A', 혈당:'A', 비만:'A', 이상지질혈증:'A', 간장질환:'A', 신장질환:'A', 청력저하:'A', 단백뇨:'A', 흉부질환:'A', 빈혈:'A'
+    },
+    'mixed': {
+      성명: '홍길동 (미리보기)', 이메일: 'dev@spigen.com', 검진기관: '녹십자아이메드', 연도: '2025년', 적합여부: '조건부적합',
+      혈압:'B', 혈당:'A', 비만:'C', 이상지질혈증:'B', 간장질환:'A', 신장질환:'A', 청력저하:'A', 단백뇨:'A', 흉부질환:'A', 빈혈:'B'
+    },
+    'bad': {
+      성명: '홍길동 (미리보기)', 이메일: 'dev@spigen.com', 검진기관: '녹십자아이메드', 연도: '2025년', 적합여부: '조건부적합',
+      혈압:'D', 혈당:'C', 비만:'C', 이상지질혈증:'D', 간장질환:'B', 신장질환:'A', 청력저하:'A', 단백뇨:'C', 흉부질환:'A', 빈혈:'D'
+    },
+  };
+  const userData = presets[mode];
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+  document.getElementById('user-email').textContent = userData.이메일;
+  document.getElementById('user-name').textContent = userData.성명;
+  const dn = document.getElementById('user-display-name');
+  if (dn) dn.textContent = userData.성명;
+  const compareBtn = document.querySelector('button[onclick*="openCompareModal"]');
+  if (compareBtn) compareBtn.style.display = 'none';
+  window.logout = function() {
+    document.getElementById('auth-screen').classList.remove('hidden');
+    document.getElementById('app-screen').classList.add('hidden');
+  };
+  // renderUserTab은 Firebase 모듈 스코프 안에 있으므로 직접 로직 재현
+  const ITEMS_CONFIG = [
+    { key:'혈압', label:'혈압' }, { key:'혈당', label:'혈당' }, { key:'비만', label:'비만' },
+    { key:'이상지질혈증', label:'콜레스테롤' }, { key:'간장질환', label:'간장질환' },
+    { key:'신장질환', label:'신장질환' }, { key:'청력저하', label:'청력저하' },
+    { key:'단백뇨', label:'단백뇨' }, { key:'흉부질환', label:'흉부질환' }, { key:'빈혈', label:'빈혈' },
+  ];
+  const GRADE_ORDER = ['D','C','B','A'];
+  const GRADE_LABEL = { A:'정상', B:'경계', C:'의심', D:'유소견' };
+  const GRADE_CLASS = { A:'v-A', B:'v-B', C:'v-C', D:'v-D' };
+  const grades = ITEMS_CONFIG.map(i => userData[i.key]).filter(Boolean);
+  const worstGrade = GRADE_ORDER.find(g => grades.includes(g)) || 'A';
+  const issueCnt = grades.filter(g => g !== 'A').length;
+  const isFit = userData.적합여부 !== '조건부적합';
+  const headerSubEl = document.getElementById('user-header-sub');
+  if (headerSubEl) { headerSubEl.textContent = issueCnt === 0 ? '올해 검진은 모두 정상입니다.' : `유소견 ${issueCnt}개 항목이 있습니다.`; headerSubEl.style.color = issueCnt === 0 ? '' : 'var(--warn)'; }
+  const verdictBgEl = document.getElementById('user-verdict-bg');
+  if (verdictBgEl) verdictBgEl.style.background = `var(${isFit ? '--ok-soft' : '--warn-soft'})`;
+  const verdictEl = document.getElementById('user-verdict-label');
+  if (verdictEl) { verdictEl.textContent = isFit ? '적합' : '조건부'; verdictEl.style.color = `var(${isFit ? '--ok' : '--warn'})`; }
+  const verdictEngEl = document.getElementById('user-verdict-eng');
+  if (verdictEngEl) verdictEngEl.textContent = isFit ? 'FIT FOR DUTY' : 'CONDITIONAL FIT';
+  const tagsEl = document.getElementById('user-verdict-tags');
+  if (tagsEl) {
+    if (issueCnt === 0) tagsEl.innerHTML = `<span class="tag">정상 ${grades.length}/${grades.length}</span><span class="tag">유소견 없음</span><span class="tag">사후관리 불필요</span>`;
+    else { const issueItems = ITEMS_CONFIG.filter(i => userData[i.key] && userData[i.key] !== 'A').map(i => i.label); tagsEl.innerHTML = `<span class="tag">유소견 ${issueCnt}개</span><span class="tag">${issueItems.join(', ')}</span>`; }
+  }
+  const instEl = document.getElementById('user-meta-institution'); if (instEl) instEl.textContent = userData.검진기관;
+  const dateEl = document.getElementById('user-meta-date'); if (dateEl) dateEl.textContent = userData.연도;
+  const verdictMetaEl = document.getElementById('user-meta-verdict');
+  if (verdictMetaEl) { verdictMetaEl.textContent = `${worstGrade} ${GRADE_LABEL[worstGrade]}`; const colorMap={A:'var(--ok)',B:'var(--info)',C:'var(--warn)',D:'var(--danger)'}; verdictMetaEl.style.color = colorMap[worstGrade]||''; }
+  const findingsEl = document.getElementById('user-meta-findings'); if (findingsEl) findingsEl.textContent = `${issueCnt}개`;
+  const titleEl = document.getElementById('user-items-title');
+  if (titleEl) { const normalCnt = grades.filter(g=>g==='A').length; titleEl.innerHTML = issueCnt===0 ? `${grades.length}개 항목 / 모두 <em style="color:var(--ok)">A 정상</em>` : `${grades.length}개 항목 / 정상 <em style="color:var(--ok)">${normalCnt}개</em> · 유소견 <em style="color:var(--danger)">${issueCnt}개</em>`; }
+  window._currentHealthData = userData;
+  const gridEl = document.getElementById('user-items-grid');
+  if (gridEl) { gridEl.innerHTML = ITEMS_CONFIG.map(({key,label}) => { const grade=userData[key]||'-'; const cls=GRADE_CLASS[grade]||''; return `<div class="border border-[var(--line)] rounded-xl p-4 hover:border-[var(--ink)] transition cursor-pointer" onclick="window.showHealthItemDetail('${key}','${grade}')"><div class="flex items-center justify-between"><span class="text-[12px] text-[var(--ink-soft)]">${label}</span><span class="pill ${cls}">${grade}</span></div><div class="text-[10px] font-mono text-[var(--ink-mute)] mt-2">${GRADE_LABEL[grade]||'-'}</div></div>`; }).join(''); }
+  const aftercareEl = document.getElementById('user-aftercare-text');
+  if (aftercareEl) aftercareEl.innerHTML = issueCnt===0 ? `<em>"정상."</em> 별도 추가 검사 또는 의료기관 방문이 필요하지 않습니다.` : `<em>"유소견 ${issueCnt}건."</em> 해당 항목에 대한 전문의 상담을 권장합니다.`;
+  const statusEl = document.getElementById('user-aftercare-status');
+  if (statusEl) { statusEl.className=`pill ${isFit?'v-A':'v-C'}`; statusEl.innerHTML=`<span class="pill-dot" style="background:var(${isFit?'--ok':'--warn'});"></span>${isFit?'상시 근무 가능':'조건부 근무'}`; }
+  const afterInstEl = document.getElementById('user-aftercare-institution');
+  if (afterInstEl) afterInstEl.textContent = `검진기관 의견 · ${userData.검진기관}`;
+};
+
+window.HEALTH_ITEM_INFO = {
+  '혈압': {
+    icon: '🩺',
+    label: '혈압 (Blood Pressure)',
+    normal: '수축기(최고) <strong>120 mmHg 미만</strong><br>이완기(최저) <strong>80 mmHg 미만</strong>',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계 (고혈압 전단계)', desc: '수축기 120~139 mmHg 또는 이완기 80~89 mmHg<br>고혈압으로 진행될 위험이 있는 단계입니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (고혈압 1기)', desc: '수축기 140~159 mmHg 또는 이완기 90~99 mmHg<br>생활습관 개선 및 정기 모니터링이 필요합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견 (고혈압 2기)', desc: '수축기 160 mmHg 이상 또는 이완기 100 mmHg 이상<br>전문의 상담 및 약물 치료 검토가 필요합니다.' },
+    },
+    advice: {
+      A: '현재 혈압이 정상입니다. 저염식 식단과 규칙적인 유산소 운동으로 유지하세요.',
+      B: '싱거운 식사(하루 나트륨 2,000mg 이하), 금연, 절주, 유산소 운동(주 5회 30분 이상)을 권장합니다.',
+      C: '가정 혈압계로 매일 측정하고 기록하세요. 심장내과 또는 내과 상담을 권장합니다.',
+      D: '즉시 전문의 상담이 필요합니다. 임의로 약 복용을 중단하지 마세요.',
+    },
+  },
+  '혈당': {
+    icon: '🍬',
+    label: '혈당 (Blood Glucose)',
+    normal: '공복혈당 <strong>100 mg/dL 미만</strong><br>(식후 2시간 혈당 140 mg/dL 미만)',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계 (당뇨 전단계)', desc: '공복혈당 100~125 mg/dL<br>당뇨병으로 진행될 가능성이 높은 단계입니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (당뇨병 의심)', desc: '공복혈당 126 mg/dL 이상 측정<br>재검사 및 당화혈색소(HbA1c) 확인이 필요합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견 (당뇨병 확진)', desc: '두 번 이상 공복혈당 126 mg/dL 초과 확인<br>내분비내과 전문의 상담 및 치료가 필요합니다.' },
+    },
+    advice: {
+      A: '현재 혈당이 정상입니다. 당류 음료 제한, 적정 체중 유지, 규칙적인 식사 습관을 유지하세요.',
+      B: '흰쌀·밀가루·설탕 등 정제 탄수화물을 줄이고, 식후 30분 걷기를 습관화하세요.',
+      C: '내과 또는 내분비내과 방문을 권장합니다. 당화혈색소(HbA1c) 검사를 받으세요.',
+      D: '전문의의 치료 계획에 따라 관리하세요. 식이요법과 운동 병행이 중요합니다.',
+    },
+  },
+  '비만': {
+    icon: '⚖️',
+    label: '비만 (BMI)',
+    normal: 'BMI <strong>18.5 ~ 22.9</strong> (정상 체중)<br>(체중(kg) ÷ 키(m)²)',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계 (과체중)', desc: 'BMI 23.0 ~ 24.9<br>비만으로 진행될 위험이 있습니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (비만)', desc: 'BMI 25.0 ~ 29.9<br>고혈압·당뇨·지방간 등 대사질환 위험이 높아집니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견 (고도비만)', desc: 'BMI 30.0 이상<br>적극적인 체중 감량이 필요합니다. 전문 상담을 권장합니다.' },
+    },
+    advice: {
+      A: '정상 체중을 유지 중입니다. 규칙적인 식사와 신체활동으로 꾸준히 관리하세요.',
+      B: '하루 500kcal 이하 감소 목표로 식단을 조절하고, 유산소+근력 운동을 병행하세요.',
+      C: '체중의 5~10%만 감량해도 건강 지표가 크게 개선됩니다. 식이·운동 병행을 권장합니다.',
+      D: '전문의(비만클리닉) 상담을 권장합니다. 빠른 감량보다 안전한 감량이 중요합니다.',
+    },
+  },
+  '이상지질혈증': {
+    icon: '🫀',
+    label: '이상지질혈증 (콜레스테롤)',
+    normal: '총콜레스테롤 <strong>200 mg/dL 미만</strong><br>LDL 콜레스테롤 <strong>130 mg/dL 미만</strong><br>중성지방 <strong>150 mg/dL 미만</strong><br>HDL 콜레스테롤 <strong>60 mg/dL 이상</strong>',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계', desc: '총콜레스테롤 200~239 mg/dL<br>식이 조절과 생활습관 개선이 필요한 단계입니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (고콜레스테롤혈증)', desc: '총콜레스테롤 240 mg/dL 이상 또는 LDL 160 이상<br>심혈관 질환 위험이 증가합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견', desc: 'LDL 190 mg/dL 이상 또는 중성지방 500 이상<br>즉각적인 약물 치료 검토가 필요합니다.' },
+    },
+    advice: {
+      A: '지질 수치가 정상입니다. 포화지방(삼겹살, 버터 등)과 트랜스지방(패스트푸드 등)을 제한하세요.',
+      B: '등 푸른 생선(연어, 고등어), 견과류, 올리브유를 섭취하고 포화지방을 줄이세요.',
+      C: '내과 상담을 권장합니다. 금연, 절주, 규칙적인 유산소 운동이 효과적입니다.',
+      D: '심혈관내과 전문의 상담이 필요합니다. 스타틴 계열 약물 치료가 필요할 수 있습니다.',
+    },
+  },
+  '간장질환': {
+    icon: '🫁',
+    label: '간장질환 (간 수치)',
+    normal: 'AST(GOT) <strong>40 U/L 이하</strong><br>ALT(GPT) <strong>35 U/L 이하</strong><br>γ-GTP 남성 <strong>73 U/L 이하</strong> / 여성 <strong>38 U/L 이하</strong>',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계', desc: '간 효소 수치(AST·ALT) 경미한 상승<br>지방간이나 음주 영향일 수 있습니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (간 질환 의심)', desc: '간 효소 수치 정상 상한의 3배 이상 상승<br>지방간, 간염, 약물성 간 손상 등을 의심합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견', desc: '간 질환 소견 확인<br>소화기내과 전문의 정밀 검사가 필요합니다.' },
+    },
+    advice: {
+      A: '간 수치가 정상입니다. 과음을 피하고, 불필요한 약물·건강보조식품 남용을 삼가세요.',
+      B: '3개월간 금주 후 재검사를 권장합니다. 고지방·고칼로리 식품 섭취를 줄이세요.',
+      C: '소화기내과 방문을 권장합니다. 음주를 즉시 중단하고 간 초음파 검사를 받으세요.',
+      D: '즉시 소화기내과 전문의를 방문하세요. 임의로 약 복용을 중단하지 마세요.',
+    },
+  },
+  '신장질환': {
+    icon: '🫘',
+    label: '신장질환 (신장 기능)',
+    normal: '크레아티닌 남성 <strong>0.7~1.2 mg/dL</strong> / 여성 <strong>0.5~1.0 mg/dL</strong><br>eGFR(사구체여과율) <strong>60 mL/min 이상</strong>',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계', desc: '크레아티닌 수치 경미한 이상<br>eGFR 45~59 범위로 초기 신기능 저하 가능성이 있습니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (신장 기능 저하)', desc: 'eGFR 30~44 (중등도 신기능 저하)<br>만성 신장 질환 의심, 정밀 평가가 필요합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견 (신장 기능 저하)', desc: 'eGFR 30 미만<br>신장내과 전문의 치료가 필요합니다.' },
+    },
+    advice: {
+      A: '신장 기능이 정상입니다. 충분한 수분 섭취(하루 1.5~2L)와 저염 식단을 유지하세요.',
+      B: '진통제(NSAIDs) 계열 약물의 남용을 피하고, 고혈압·당뇨 관리를 병행하세요.',
+      C: '신장내과 상담을 권장합니다. 단백질 과다 섭취를 제한하고 혈압을 철저히 관리하세요.',
+      D: '신장내과 전문의의 지속적인 치료가 필요합니다. 투석 여부 평가가 필요할 수 있습니다.',
+    },
+  },
+  '청력저하': {
+    icon: '👂',
+    label: '청력저하 (Hearing)',
+    normal: '양측 모두 <strong>25 dB 이하</strong> (정상 청력 범위)',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계 (경도 난청)', desc: '26~40 dB 범위<br>조용한 환경에서는 대화 가능하나 소음 환경에서 어려움이 있습니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (중도 난청)', desc: '41~55 dB 범위<br>일상 대화가 어려운 수준으로 이비인후과 정밀 검사가 필요합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견 (고도 난청)', desc: '55 dB 초과<br>보청기 또는 전문적 치료가 필요할 수 있습니다.' },
+    },
+    advice: {
+      A: '청력이 정상입니다. 이어폰·헤드폰 볼륨을 최대의 60% 이하로 유지하고 소음을 피하세요.',
+      B: '이비인후과 정밀 청력 검사를 받으세요. 소음 환경에서 귀마개 착용을 권장합니다.',
+      C: '이비인후과 전문의 상담을 권장합니다. 소음성 난청인 경우 예방이 최선입니다.',
+      D: '이비인후과 전문의의 치료 계획에 따라 관리하세요.',
+    },
+  },
+  '단백뇨': {
+    icon: '🔬',
+    label: '단백뇨 (Proteinuria)',
+    normal: '소변 단백 검사 <strong>음성(−)</strong><br>(하루 단백 배출량 150 mg 미만)',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계 (경미한 단백뇨)', desc: '소변 단백 1+ (약 30~100 mg/dL)<br>일시적 원인(운동·발열)일 수 있으나 재검이 필요합니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (단백뇨)', desc: '소변 단백 2+ 이상<br>신장 질환 가능성이 높으며 정밀 검사가 필요합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견 (지속적 단백뇨)', desc: '소변 단백 3+ 이상<br>신장내과 전문의 정밀 평가가 필요합니다.' },
+    },
+    advice: {
+      A: '단백뇨 음성으로 정상입니다. 충분한 수분 섭취와 과도한 단백질 섭취를 자제하세요.',
+      B: '2~4주 후 재검사를 권장합니다. 격렬한 운동 후에도 일시적으로 나타날 수 있습니다.',
+      C: '신장내과 또는 내과 방문을 권장합니다. 24시간 소변 단백 정량 검사가 필요합니다.',
+      D: '신장내과 전문의 상담이 시급합니다. 고혈압·당뇨가 있다면 철저한 관리가 필요합니다.',
+    },
+  },
+  '흉부질환': {
+    icon: '🫁',
+    label: '흉부질환 (흉부 X-ray)',
+    normal: '흉부 X-ray 소견 <strong>이상 없음</strong><br>(폐·심장·흉곽 구조 정상)',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계', desc: '경미한 이상 소견 (흉터·석회화 등)<br>임상적으로 의미 없을 수 있으나 경과 관찰이 필요합니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심', desc: '추가 확인이 필요한 소견 (결절·음영 등)<br>CT 등 정밀 검사를 권장합니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견', desc: '활동성 병변 또는 명확한 이상 소견<br>호흡기내과·흉부외과 전문의 즉시 상담이 필요합니다.' },
+    },
+    advice: {
+      A: '흉부 소견이 정상입니다. 금연을 유지하고 연 1회 정기 검진을 권장합니다.',
+      B: '다음 연도 검진 시 변화를 비교하세요. 흡연 중이라면 금연이 최선의 예방입니다.',
+      C: '호흡기내과 방문 및 흉부 CT 검사를 권장합니다. 금연이 필수입니다.',
+      D: '호흡기내과 또는 흉부외과 전문의를 즉시 방문하세요.',
+    },
+  },
+  '빈혈': {
+    icon: '🩸',
+    label: '빈혈 (Anemia)',
+    normal: '혈색소(Hb) 남성 <strong>13.0 g/dL 이상</strong><br>혈색소(Hb) 여성 <strong>12.0 g/dL 이상</strong>',
+    grades: {
+      B: { color: 'var(--info,#3b82f6)', bg: '#eff6ff', label: 'B — 경계 (경미한 빈혈)', desc: 'Hb 남성 12.0~12.9 / 여성 11.0~11.9 g/dL<br>철분 결핍이 원인인 경우가 많습니다.' },
+      C: { color: 'var(--warn,#f59e0b)', bg: '#fffbeb', label: 'C — 의심 (빈혈)', desc: 'Hb 10.0~11.9 g/dL<br>피로감, 어지러움 등의 증상이 나타날 수 있습니다.' },
+      D: { color: 'var(--danger,#ef4444)', bg: '#fef2f2', label: 'D — 유소견 (중증 빈혈)', desc: 'Hb 10.0 g/dL 미만<br>혈액내과 전문의 정밀 검사 및 치료가 필요합니다.' },
+    },
+    advice: {
+      A: '혈색소 수치가 정상입니다. 철분이 풍부한 붉은 육류, 시금치, 두부를 꾸준히 섭취하세요.',
+      B: '철분 풍부 식품(소고기·달걀·두부)과 비타민C를 함께 섭취하면 흡수율이 높아집니다.',
+      C: '내과 방문을 권장합니다. 철분제 복용이 필요할 수 있으며 출혈 원인을 확인하세요.',
+      D: '혈액내과 전문의 상담이 필요합니다. 수혈 또는 적극적인 치료가 필요할 수 있습니다.',
+    },
+  },
+};
+
+window.showHealthItemDetail = function(key, grade) {
+  const info = window.HEALTH_ITEM_INFO[key];
+  if (!info) return;
+
+  const GRADE_COLOR = { A: 'var(--ok,#3a7d44)', B: 'var(--info,#3b82f6)', C: 'var(--warn,#f59e0b)', D: 'var(--danger,#ef4444)' };
+  const GRADE_BG   = { A: '#f0faf0', B: '#eff6ff', C: '#fffbeb', D: '#fef2f2' };
+  const GRADE_LABEL = { A: 'A 정상', B: 'B 경계', C: 'C 의심', D: 'D 유소견' };
+
+  document.getElementById('him-icon').textContent = info.icon;
+  document.getElementById('him-label').textContent = info.label;
+  document.getElementById('him-title').textContent = key;
+  const pillEl = document.getElementById('him-pill');
+  pillEl.textContent = GRADE_LABEL[grade] || grade;
+  pillEl.style.background = GRADE_BG[grade] || '#f5f5f5';
+  pillEl.style.color = GRADE_COLOR[grade] || '#333';
+  pillEl.style.border = `1px solid ${GRADE_COLOR[grade] || '#ccc'}`;
+
+  document.getElementById('him-normal').innerHTML = info.normal;
+
+  const gradeBox = document.getElementById('him-grade-box');
+  if (grade !== 'A' && info.grades && info.grades[grade]) {
+    const g = info.grades[grade];
+    gradeBox.style.display = 'block';
+    gradeBox.style.background = g.bg;
+    document.getElementById('him-grade-label-top').textContent = g.label;
+    document.getElementById('him-grade-label-top').style.color = g.color;
+    document.getElementById('him-grade-desc').innerHTML = g.desc;
+    document.getElementById('him-grade-desc').style.color = g.color;
+  } else {
+    gradeBox.style.display = 'none';
+  }
+
+  const adviceText = info.advice && info.advice[grade];
+  document.getElementById('him-advice').textContent = adviceText || '전문의와 상담하세요.';
+
+  const modal = document.getElementById('health-item-modal');
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+};
+
+window.closeHealthItemModal = function() {
+  document.getElementById('health-item-modal').style.display = 'none';
+  document.body.style.overflow = '';
+};
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') window.closeHealthItemModal();
+});
 </script>
 </body>
 </html>
